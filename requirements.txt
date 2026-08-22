@@ -4,3 +4,4 @@ azure-storage-file-datalake
 pandas
 pyarrow
 country_converter
+openpyxl
