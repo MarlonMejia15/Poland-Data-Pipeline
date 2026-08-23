@@ -99,7 +99,14 @@ if __name__ == "__main__":
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"gus_census_2021_honduras_values_{timestamp}.json"
 
-    local_path = save_raw_locally(honduras_values, filename)
-    upload_to_datalake(local_path)
+    local_path = save_raw_locally(
+        honduras_values,
+        filename,
+        local_directory="data/raw/gus/discovery",
+    )
+    upload_to_datalake(
+        local_path,
+        remote_directory="gus/discovery",
+    )
 
     print("Done. Numerical values were downloaded and uploaded to Azure.")

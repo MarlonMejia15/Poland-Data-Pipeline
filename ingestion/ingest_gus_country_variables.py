@@ -94,7 +94,14 @@ if __name__ == "__main__":
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"gus_census_2021_country_variables_{timestamp}.json"
 
-    local_path = save_raw_locally(country_variables, filename)
-    upload_to_datalake(local_path)
+    local_path = save_raw_locally(
+        country_variables,
+        filename,
+        local_directory="data/raw/gus/discovery",
+    )
+    upload_to_datalake(
+        local_path,
+        remote_directory="gus/discovery",
+    )
 
     print("Done. No numerical statistical values were downloaded in this step.")

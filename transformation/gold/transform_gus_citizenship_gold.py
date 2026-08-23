@@ -40,13 +40,15 @@ STORAGE_ACCOUNT_NAME = os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
 STORAGE_ACCOUNT_KEY = os.getenv("AZURE_STORAGE_ACCOUNT_KEY")
 
 CURATED_CONTAINER = "curated"
+SCRIPT_VERSION = "2026-08-22.2"
 SILVER_PATH = (
     "silver/gus/census_2021/citizenship/gus_citizenships_2021.parquet"
 )
-GOLD_DIMENSIONS_DIRECTORY = "gold/dimensions"
-GOLD_FACTS_DIRECTORY = "gold/facts"
-GOLD_MANIFEST_PATH = "gold/_manifest.json"
-LOCAL_GOLD_DIRECTORY = Path("data") / "gold"
+GOLD_DIMENSIONS_DIRECTORY = "gold/gus/dimensions"
+GOLD_FACTS_DIRECTORY = "gold/gus/facts"
+GOLD_MANIFEST_PATH = "gold/gus/_manifest.json"
+LOCAL_GOLD_DIMENSIONS_DIRECTORY = Path("data/gold/gus/dimensions")
+LOCAL_GOLD_FACTS_DIRECTORY = Path("data/gold/gus/facts")
 
 EXPECTED_COUNTRIES = 187
 EXPECTED_TERRITORIES = 17
@@ -120,6 +122,60 @@ def download_silver_dataframe(curated_file_system):
     return dataframe
 
 
+def resolve_converter_values(source, standard, iso2, iso3, continent):
+    """Selects the exact country when coco returns multiple regex matches."""
+
+    raw_values = {
+        "country_name_standard_en": standard,
+        "iso2_code": iso2,
+        "iso3_code": iso3,
+        "continent": continent,
+    }
+    list_lengths = {
+        len(value)
+        for value in raw_values.values()
+        if isinstance(value, list)
+    }
+    if not list_lengths:
+        return raw_values
+
+    if len(list_lengths) != 1:
+        raise ValueError(
+            f"Inconsistent country_converter matches for {source}: "
+            f"{raw_values}"
+        )
+
+    match_count = list_lengths.pop()
+    candidates = []
+    for index in range(match_count):
+        candidates.append(
+            {
+                attribute: (
+                    value[index] if isinstance(value, list) else value
+                )
+                for attribute, value in raw_values.items()
+            }
+        )
+
+    normalized_source = source.casefold().strip()
+    exact_matches = [
+        candidate
+        for candidate in candidates
+        if str(candidate["country_name_standard_en"]).casefold().strip()
+        == normalized_source
+    ]
+    if len(exact_matches) == 1:
+        print(
+            "Resolved multiple country_converter matches for "
+            f"{source} using the exact standard name"
+        )
+        return exact_matches[0]
+
+    raise ValueError(
+        f"Ambiguous country reference mapping for {source}: {candidates}"
+    )
+
+
 def convert_country_attributes(country_names):
     """Returns standardized names, ISO codes, and continents."""
     try:
@@ -139,27 +195,47 @@ def convert_country_attributes(country_names):
     standard_names = converter.convert(
         names=lookup_names,
         to="name_short",
-        enforce_list=True,
+        enforce_list=False,
         not_found=missing_marker,
     )
     iso2_codes = converter.convert(
         names=lookup_names,
         to="ISO2",
-        enforce_list=True,
+        enforce_list=False,
         not_found=missing_marker,
     )
     iso3_codes = converter.convert(
         names=lookup_names,
         to="ISO3",
-        enforce_list=True,
+        enforce_list=False,
         not_found=missing_marker,
     )
     continents = converter.convert(
         names=lookup_names,
         to="continent",
-        enforce_list=True,
+        enforce_list=False,
         not_found=missing_marker,
     )
+
+    resolved_rows = [
+        resolve_converter_values(
+            lookup_name, standard, iso2, iso3, continent
+        )
+        for lookup_name, standard, iso2, iso3, continent in zip(
+            lookup_names,
+            standard_names,
+            iso2_codes,
+            iso3_codes,
+            continents,
+        )
+    ]
+
+    standard_names = [
+        row["country_name_standard_en"] for row in resolved_rows
+    ]
+    iso2_codes = [row["iso2_code"] for row in resolved_rows]
+    iso3_codes = [row["iso3_code"] for row in resolved_rows]
+    continents = [row["continent"] for row in resolved_rows]
 
     unresolved = [
         original
@@ -489,7 +565,8 @@ def ensure_directory(file_system, directory_path):
 
 def save_and_upload_tables(curated_file_system, tables):
     """Writes every Gold table as Parquet locally and in Azure."""
-    LOCAL_GOLD_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    LOCAL_GOLD_DIMENSIONS_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    LOCAL_GOLD_FACTS_DIRECTORY.mkdir(parents=True, exist_ok=True)
     ensure_directory(curated_file_system, GOLD_DIMENSIONS_DIRECTORY)
     ensure_directory(curated_file_system, GOLD_FACTS_DIRECTORY)
 
@@ -502,15 +579,21 @@ def save_and_upload_tables(curated_file_system, tables):
     output_paths = {}
 
     for table_name, dataframe in tables.items():
-        local_path = LOCAL_GOLD_DIRECTORY / f"{table_name}.parquet"
-        dataframe.to_parquet(local_path, index=False, engine="pyarrow")
-
-        directory = (
+        is_dimension = table_name in dimension_names
+        local_directory = (
+            LOCAL_GOLD_DIMENSIONS_DIRECTORY
+            if is_dimension
+            else LOCAL_GOLD_FACTS_DIRECTORY
+        )
+        azure_directory = (
             GOLD_DIMENSIONS_DIRECTORY
             if table_name in dimension_names
             else GOLD_FACTS_DIRECTORY
         )
-        remote_path = f"{directory}/{local_path.name}"
+        local_path = local_directory / f"{table_name}.parquet"
+        dataframe.to_parquet(local_path, index=False, engine="pyarrow")
+
+        remote_path = f"{azure_directory}/{local_path.name}"
         with open(local_path, "rb") as file:
             curated_file_system.get_file_client(remote_path).upload_data(
                 file.read(), overwrite=True
@@ -560,6 +643,7 @@ def write_gold_manifest(curated_file_system, tables, output_paths):
 
 def main():
     """Executes the complete Silver-to-Gold dimensional transformation."""
+    print(f"GUS Gold transformer version: {SCRIPT_VERSION}")
     service_client = get_service_client()
     curated_file_system = service_client.get_file_system_client(
         CURATED_CONTAINER

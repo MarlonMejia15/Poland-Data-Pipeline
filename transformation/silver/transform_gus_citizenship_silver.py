@@ -12,10 +12,11 @@ voivodship names are standardized through a controlled reference mapping; this
 is safer for geographic joins than machine-translating official place names.
 Azure Translator will be used for unique Polish labels from future sources.
 """
+
 import io
 import json
-import os 
-from datetime import datetime,timezone
+import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -23,13 +24,13 @@ from azure.core.exceptions import ResourceExistsError
 from azure.storage.filedatalake import DataLakeServiceClient
 from dotenv import load_dotenv
 
-
 load_dotenv()
 
 STORAGE_ACCOUNT_NAME = os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
 STORAGE_ACCOUNT_KEY = os.getenv("AZURE_STORAGE_ACCOUNT_KEY")
 
 RAW_CONTAINER = "raw"
+RAW_DIRECTORY = "gus/census_2021/citizenship"
 CURATED_CONTAINER = "curated"
 RAW_FILE_PREFIX = "gus_census_2021_all_citizenships_"
 SILVER_DIRECTORY = "silver/gus/census_2021/citizenship"
@@ -40,7 +41,7 @@ PARQUET_FILENAME = "gus_citizenships_2021.parquet"
 EXPECTED_YEAR = 2021
 EXPECTED_TERRITORIES = 17
 EXPECTED_VARIABLES = 190
-EXPECTED_COUNTRIES = 187 
+EXPECTED_COUNTRIES = 187
 
 # Controlled reference data is preferable to machine translation for official
 # administrative geography names and future map joins.
@@ -64,6 +65,7 @@ TERRITORY_NAMES_EN = {
     "PODLASKIE": "Podlaskie",
     "MAZOWIECKIE": "Masovian",
 }
+
 
 def validate_azure_config():
     """Stops with a clear error when Azure credentials are unavailable."""
@@ -90,23 +92,26 @@ def get_service_client():
 
 
 def find_latest_raw_file(raw_file_system):
-    """Finds the newest timestamped all-citizenships JSON in raw."""
+    """Finds the most recent complete GUS citizenship Raw file."""
     candidates = []
 
-    for path in raw_file_system.get_paths():
+    for path in raw_file_system.get_paths(path=RAW_DIRECTORY):
         filename = Path(path.name).name
+
         if not path.is_directory and filename.startswith(RAW_FILE_PREFIX):
-            if filename.endswith(".json"):
-                candidates.append(path.name)
+            candidates.append(path)
 
     if not candidates:
         raise FileNotFoundError(
             f"No file beginning with '{RAW_FILE_PREFIX}' was found in "
-            f"container '{RAW_CONTAINER}'."
+            f"container '{RAW_CONTAINER}/{RAW_DIRECTORY}'."
         )
 
-    # The filenames contain YYYYMMDD_HHMMSS, so lexical order is chronological.
-    return max(candidates)
+    latest_file = max(
+        candidates,
+        key=lambda path: path.last_modified,
+    )
+    return latest_file.name
 
 
 def download_raw_json(raw_file_system, raw_path):
@@ -139,12 +144,8 @@ def flatten_citizenship_data(payload):
                     "source_dataset": "Census 2021 - citizenship",
                     "reference_year": value.get("year"),
                     "variable_id": record.get("variableId", record.get("id")),
-                    "citizenship_name_en": str(
-                        record.get("citizenship", "")
-                    ).strip(),
-                    "citizenship_type": str(
-                        record.get("citizenshipType", "")
-                    ).strip(),
+                    "citizenship_name_en": str(record.get("citizenship", "")).strip(),
+                    "citizenship_type": str(record.get("citizenshipType", "")).strip(),
                     "unit_id": str(record.get("unitId", "")).strip(),
                     "territory_name_original": original_territory,
                     "territory_name_en": territory_name_en,
@@ -177,9 +178,7 @@ def flatten_citizenship_data(payload):
         "pipeline_extracted_at_utc",
     ]
     for column in timestamp_columns:
-        dataframe[column] = pd.to_datetime(
-            dataframe[column], errors="raise", utc=True
-        )
+        dataframe[column] = pd.to_datetime(dataframe[column], errors="raise", utc=True)
 
     string_columns = [
         "source_system",
@@ -226,31 +225,25 @@ def validate_silver_data(dataframe, raw_total_records):
     if country_rows["citizenship_name_en"].nunique() != EXPECTED_COUNTRIES:
         errors.append("The dataset does not contain exactly 187 countries.")
 
-    national = dataframe[dataframe["territory_level"] == 0].set_index(
-        "variable_id"
-    )["population"]
+    national = dataframe[dataframe["territory_level"] == 0].set_index("variable_id")[
+        "population"
+    ]
     regional = (
         dataframe[dataframe["territory_level"] == 2]
         .groupby("variable_id")["population"]
         .sum()
     )
     if not national.sort_index().equals(regional.sort_index()):
-        errors.append(
-            "At least one national value differs from its 16-region sum."
-        )
+        errors.append("At least one national value differs from its 16-region sum.")
 
-    country_totals = (
-        country_rows.groupby("unit_id")["population"].sum().sort_index()
-    )
+    country_totals = country_rows.groupby("unit_id")["population"].sum().sort_index()
     aggregate_totals = (
         dataframe[dataframe["citizenship_type"] == "aggregate"]
         .set_index("unit_id")["population"]
         .sort_index()
     )
     if not country_totals.equals(aggregate_totals):
-        errors.append(
-            "The sum of country rows differs from non-Polish citizenship."
-        )
+        errors.append("The sum of country rows differs from non-Polish citizenship.")
 
     if errors:
         raise ValueError("Silver validation failed:\n- " + "\n- ".join(errors))
@@ -265,7 +258,7 @@ def validate_silver_data(dataframe, raw_total_records):
 
 def save_silver_locally(dataframe):
     """Creates local CSV and Parquet copies for inspection."""
-    output_directory = Path("data") / "silver"
+    output_directory = Path("data/silver/gus/census_2021/citizenship")
     output_directory.mkdir(parents=True, exist_ok=True)
 
     csv_path = output_directory / CSV_FILENAME
@@ -322,9 +315,7 @@ def write_run_manifest(curated_file_system, dataframe, raw_path):
     }
 
     manifest_path = f"{SILVER_DIRECTORY}/_manifest.json"
-    manifest_bytes = json.dumps(
-        manifest, ensure_ascii=False, indent=2
-    ).encode("utf-8")
+    manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
     curated_file_system.get_file_client(manifest_path).upload_data(
         manifest_bytes, overwrite=True
     )
@@ -335,9 +326,7 @@ def main():
     """Executes the complete Raw-to-Silver transformation."""
     service_client = get_service_client()
     raw_file_system = service_client.get_file_system_client(RAW_CONTAINER)
-    curated_file_system = service_client.get_file_system_client(
-        CURATED_CONTAINER
-    )
+    curated_file_system = service_client.get_file_system_client(CURATED_CONTAINER)
 
     raw_path = find_latest_raw_file(raw_file_system)
     payload = download_raw_json(raw_file_system, raw_path)

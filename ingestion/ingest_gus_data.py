@@ -14,11 +14,11 @@ import time
 from datetime import datetime, timezone
 
 import requests
+from azure.core.exceptions import ResourceExistsError
 from azure.storage.filedatalake import DataLakeServiceClient
 from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-
 
 # Load credentials from .env
 load_dotenv()
@@ -138,8 +138,7 @@ def get_subject_groups(subjects):
             subject_id = subject["id"]
             subject_name = subject.get("name")
             print(
-                f"Fetching groups for {subject_id} "
-                f"({index}/{len(subject_rows)})..."
+                f"Fetching groups for {subject_id} " f"({index}/{len(subject_rows)})..."
             )
 
             group_page = get_all_pages(
@@ -177,10 +176,10 @@ def get_subject_groups(subjects):
     }
 
 
-def save_raw_locally(data, filename):
-    """Saves the combined JSON response to a local data folder."""
-    os.makedirs("data", exist_ok=True)
-    filepath = os.path.join("data", filename)
+def save_raw_locally(data, filename, local_directory="data"):
+    """Saves a JSON response to the requested local Raw directory."""
+    os.makedirs(local_directory, exist_ok=True)
+    filepath = os.path.join(local_directory, filename)
 
     with open(filepath, "w", encoding="utf-8") as file:
         json.dump(data, file, ensure_ascii=False, indent=2)
@@ -204,28 +203,48 @@ def validate_azure_config():
         )
 
 
-def upload_to_datalake(local_filepath, container="raw"):
-    """Uploads a local file to an Azure Data Lake Gen2 container."""
+def upload_to_datalake(
+    local_filepath,
+    container="raw",
+    remote_directory=None,
+):
+    """Uploads a local file to an Azure Data Lake Gen2 directory."""
     validate_azure_config()
 
-    account_url = (
-        f"https://{STORAGE_ACCOUNT_NAME}.dfs.core.windows.net"
-    )
+    account_url = f"https://{STORAGE_ACCOUNT_NAME}.dfs.core.windows.net"
     service_client = DataLakeServiceClient(
         account_url=account_url,
         credential=STORAGE_ACCOUNT_KEY,
     )
-    file_system_client = service_client.get_file_system_client(
-        file_system=container
-    )
+    file_system_client = service_client.get_file_system_client(file_system=container)
 
     file_name = os.path.basename(local_filepath)
-    file_client = file_system_client.get_file_client(file_name)
+
+    if remote_directory:
+        remote_directory = remote_directory.strip("/")
+
+        current_path = ""
+        for directory_name in remote_directory.split("/"):
+            current_path = (
+                f"{current_path}/{directory_name}" if current_path else directory_name
+            )
+            directory_client = file_system_client.get_directory_client(current_path)
+
+            try:
+                directory_client.create_directory()
+            except ResourceExistsError:
+                pass
+
+        remote_path = f"{remote_directory}/{file_name}"
+    else:
+        remote_path = file_name
+
+    file_client = file_system_client.get_file_client(remote_path)
 
     with open(local_filepath, "rb") as file:
         file_client.upload_data(file.read(), overwrite=True)
 
-    print(f"Uploaded to Data Lake container '{container}': {file_name}")
+    print(f"Uploaded to Data Lake container " f"'{container}': {remote_path}")
 
 
 if __name__ == "__main__":
@@ -241,10 +260,24 @@ if __name__ == "__main__":
     subjects_filename = f"gus_subjects_{timestamp}.json"
     groups_filename = f"gus_subject_groups_{timestamp}.json"
 
-    subjects_local_path = save_raw_locally(subjects, subjects_filename)
-    groups_local_path = save_raw_locally(subject_groups, groups_filename)
+    subjects_local_path = save_raw_locally(
+        subjects,
+        subjects_filename,
+        local_directory="data/raw/gus/discovery",
+    )
+    groups_local_path = save_raw_locally(
+        subject_groups,
+        groups_filename,
+        local_directory="data/raw/gus/discovery",
+    )
 
-    upload_to_datalake(subjects_local_path)
-    upload_to_datalake(groups_local_path)
+    upload_to_datalake(
+        subjects_local_path,
+        remote_directory="gus/discovery",
+    )
+    upload_to_datalake(
+        groups_local_path,
+        remote_directory="gus/discovery",
+    )
 
     print(f"Done. Statistical data will be limited to {DATA_START_YEAR}+.")

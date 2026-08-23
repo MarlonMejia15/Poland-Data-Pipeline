@@ -4,8 +4,9 @@ ingest_gus_all_citizenships.py
 Downloads Census 2021 usual-residence counts for every foreign citizenship,
 plus stateless/unknown categories, for Poland and all 16 voivodships.
 
-The script reads the most recent country-variable metadata JSON from data/ and
-queries GUS BDL by territorial unit in batches to stay below anonymous limits.
+The script reads the most recent country-variable metadata JSON from the local
+GUS Raw layer and queries GUS BDL by territorial unit in batches to stay below
+anonymous limits.
 """
 
 import json
@@ -19,7 +20,6 @@ from ingest_gus_data import (
     save_raw_locally,
     upload_to_datalake,
 )
-
 
 DATA_YEAR = 2021
 VARIABLE_BATCH_SIZE = 40
@@ -52,14 +52,21 @@ EXCLUDED_CITIZENSHIP_LABELS = {
 
 
 def find_latest_metadata_file():
-    """Returns the newest country-variable metadata file from data/."""
-    files = list(Path("data").glob(METADATA_PATTERN))
+    """Returns the newest country-variable metadata file from local Raw."""
+    metadata_root = Path("data/raw/gus")
+    files = list(metadata_root.rglob(METADATA_PATTERN))
+
     if not files:
         raise FileNotFoundError(
-            "No country-variable metadata file was found in data/. "
-            "Run ingest_gus_country_variables.py first."
+            f"No country-variable metadata matching "
+            f"'{METADATA_PATTERN}' was found inside "
+            f"'{metadata_root}'. Run ingest_gus_country_variables.py first."
         )
-    return max(files, key=lambda path: path.stat().st_mtime)
+
+    return max(
+        files,
+        key=lambda path: path.stat().st_mtime,
+    )
 
 
 def classify_citizenship(label):
@@ -167,8 +174,7 @@ def get_all_citizenship_values(variable_metadata):
         "territoryCount": len(UNITS),
         "variableCount": len(variable_metadata),
         "countryCount": sum(
-            item["citizenshipType"] == "country"
-            for item in variable_metadata
+            item["citizenshipType"] == "country" for item in variable_metadata
         ),
         "queryCount": total_queries,
         "queries": query_summaries,
@@ -183,8 +189,7 @@ if __name__ == "__main__":
 
     citizenship_variables = load_citizenship_variables(metadata_file)
     country_count = sum(
-        item["citizenshipType"] == "country"
-        for item in citizenship_variables
+        item["citizenshipType"] == "country" for item in citizenship_variables
     )
     print(
         f"Selected {len(citizenship_variables)} variables, "
@@ -196,8 +201,15 @@ if __name__ == "__main__":
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"gus_census_2021_all_citizenships_{timestamp}.json"
+    local_path = save_raw_locally(
+        citizenship_values,
+        filename,
+        local_directory="data/raw/gus/census_2021/citizenship",
+    )
 
-    local_path = save_raw_locally(citizenship_values, filename)
-    upload_to_datalake(local_path)
+    upload_to_datalake(
+        local_path,
+        remote_directory="gus/census_2021/citizenship",
+    )
 
     print("Done. All citizenship values were uploaded to Azure.")

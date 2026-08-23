@@ -59,7 +59,14 @@ if __name__ == "__main__":
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"gus_census_2021_subgroups_{timestamp}.json"
 
-    local_path = save_raw_locally(census_subgroups, filename)
-    upload_to_datalake(local_path)
+    local_path = save_raw_locally(
+        census_subgroups,
+        filename,
+        local_directory="data/raw/gus/discovery",
+    )
+    upload_to_datalake(
+        local_path,
+        remote_directory="gus/discovery",
+    )
 
     print("Done. No statistical values were downloaded in this step.")
