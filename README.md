@@ -152,7 +152,7 @@ upload stops.
 * **H1 2025:** 378,756 applications and 16,411 negative decisions.
 * **H1 2026:** 449,287 applications and 15,125 negative decisions.
 
-* Core valid documents combine temporary residence, permanent residence, and EU long-term resident documents.
+Core valid documents combine temporary residence, permanent residence, and EU long-term resident documents.
 
 ## Project folders
 
