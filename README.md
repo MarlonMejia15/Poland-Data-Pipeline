@@ -24,13 +24,14 @@ The selected dataset is the usual-residence population by citizenship and sex
   * BDL API documentation: https://api.stat.gov.pl/Home/BdlApi?lang=en
   * API base URL: https://bdl.stat.gov.pl/api/v1
 
-### UdSC annual reports
+### UdSC annual and periodic reports
 
 The second source is the Polish Office for Foreigners (UdSC). UdSC publishes
 annual Excel reports about procedures involving foreigners. I downloaded the
 complete reports for 2021 through 2025.
 
   * UdSC annual reports: https://www.gov.pl/web/udsc/zestawienia-roczne
+  * UdSC periodic reports: https://www.gov.pl/web/udsc/raporty-okresowe2
 
 From these workbooks, the pipeline extracts:
 
@@ -42,6 +43,12 @@ These measures are different from the GUS census population. For example, a
 valid-document total is a stock at a specific date, while applications and
 decisions are annual flows. I will keep them separate in Power BI instead of
 combining them into one population figure.
+
+I also included the first-half reports for 2025 and 2026. They provide a fair
+January-June comparison for the most recent period. In these workbooks,
+`Arkusz11` contains the cumulative figures from January through June, while
+`Arkusz9` contains June only. The periodic residence tables contain national
+totals but no citizenship breakdown, so they are stored in separate facts.
 
 ## Pipeline
 
@@ -88,14 +95,16 @@ added to the country totals.
 ### Shared and UdSC tables
 
 * `dim_country_conformed`: 206 rows
-* `dim_period_conformed`: 6 rows
-* `dim_source_conformed`: 4 rows
+* `dim_period_conformed`: 8 rows
+* `dim_source_conformed`: 6 rows
 * `dim_citizenship`: 206 rows
 * `dim_residence_type`: 17 rows
 * `dim_decision_outcome`: 4 rows
 * `fact_residence_applications`: 1,682 rows
 * `fact_residence_decisions`: 6,616 rows
 * `fact_valid_documents`: 15,226 rows
+* `fact_residence_applications_h1`: 6 rows
+* `fact_residence_decisions_h1`: 18 rows
 
 The existing GUS country keys are preserved when UdSC countries and
 territories are added to the conformed dimension.
@@ -140,14 +149,15 @@ upload stops.
 * **2023:** 608,900 applications, 28,043 negative decisions, and 831,639 core valid documents.
 * **2024:** 509,783 applications, 34,691 negative decisions, and 891,671 core valid documents.
 * **2025:** 562,801 applications, 31,812 negative decisions, and 955,176 core valid documents.
+* **H1 2025:** 378,756 applications and 16,411 negative decisions.
+* **H1 2026:** 449,287 applications and 15,125 negative decisions.
 
 * Core valid documents combine temporary residence, permanent residence, and EU long-term resident documents.
-
 
 ## Project folders
 
  * `ingestion/` contains the GUS discovery/extraction scripts and the UdSC annual
-    workbook ingestion.
+    and periodic workbook ingestion.
  * `transformation/silver/` contains the Raw-to-Silver transformations.
  * `transformation/gold/` contains the Silver-to-Gold transformations.
  * `data/raw/`, `data/silver/`, and `data/gold/` store local copies of the pipeline data layers.
@@ -176,6 +186,7 @@ Run the commands from the repository root.
 
     python .\ingestion\ingest_gus_all_citizenships.py
     python .\ingestion\ingest_udsc_annual.py
+    python .\ingestion\ingest_udsc_periodic.py
 
 The other GUS ingestion scripts show the discovery steps used to find the final
 census subject and citizenship variables.
@@ -184,14 +195,17 @@ census subject and citizenship variables.
 
     python .\transformation\silver\transform_gus_citizenship_silver.py
     python .\transformation\silver\transform_udsc_residence_silver.py
+    python .\transformation\silver\transform_udsc_periodic_silver.py
 
 ### Gold
 
     python .\transformation\gold\transform_gus_citizenship_gold.py
     python .\transformation\gold\transform_udsc_residence_gold.py
+    python .\transformation\gold\transform_udsc_periodic_gold.py
 
-GUS Gold runs first because the UdSC model extends its country, period, and
-source dimensions.
+GUS Gold runs first because the annual UdSC model extends its country, period,
+and source dimensions. Periodic UdSC Gold runs last and adds the H1 periods and
+national facts without changing the annual facts.
 
 
 ## Notes for the dashboard
@@ -204,7 +218,9 @@ There are a few comparisons I will avoid in Power BI:
   * Valid documents are not the same as new permits issued during the year.
   * Citizenship is not the same as country of birth or ethnicity.
   * The GUS census is from 2021, while the UdSC series covers 2021-2025.
-  * Partial 2026 data is not included in the yearly comparison.
+  * H1 2026 data is excluded from annual year-over-year comparisons.
+  * H1 2025 is compared only with H1 2026, not with complete annual totals.
+  * The H1 facts are national totals and cannot be filtered by citizenship.
 
 The planned report will have a general overview, residence procedures,
 citizenship rankings, a separate GUS Census 2021 page, and one focused page for
