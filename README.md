@@ -222,9 +222,118 @@ There are a few comparisons I will avoid in Power BI:
   * H1 2025 is compared only with H1 2026, not with complete annual totals.
   * The H1 facts are national totals and cannot be filtered by citizenship.
 
-The planned report will have a general overview, residence procedures,
-citizenship rankings, a separate GUS Census 2021 page, and one focused page for
-Latin America and the Caribbean.
+
+## Power BI Analytics Dashboard
+
+The Power BI report transforms the processed datasets into an interactive analytical experience focused on residence procedures, citizenship trends and the geographic distribution of foreign residents in Poland.
+
+### Dashboard Pages
+
+#### 1. Executive Overview
+
+Provides a high-level view of:
+
+- Residence applications
+- Residence decisions
+- Negative decisions
+- Valid residence documents
+- Annual trends from 2021 to 2025
+- Applications by citizenship
+- Distribution of decision outcomes
+
+#### 2. Citizenship Analysis
+
+Allows users to compare immigration indicators by citizenship, continent, country and residence type.
+
+The page includes:
+
+- Applications and decisions for the latest complete year
+- Positive decision rate
+- Valid residence documents
+- Top citizenship groups
+- Annual applications and decisions
+- Interactive filters that dynamically update all KPIs and visualizations
+
+#### 3. 2026 Mid-Year Analysis
+
+Compares January–June 2026 against the equivalent period in 2025.
+
+The analysis highlights:
+
+- Year-over-year changes in applications and decisions
+- Results by residence type
+- Changes in decision outcomes
+- Key business takeaways based on equivalent six-month periods
+
+#### 4. Foreign Population Geography
+
+Uses an interactive ArcGIS map to display the geographic distribution of foreign residents recorded in Poland’s 2021 Census.
+
+Users can:
+
+- Filter the population by continent and citizenship
+- Identify the voivodeships where residents of a selected citizenship declared their place of residence
+- View the population recorded in each voivodeship
+- Compare regional concentration using proportional map symbols
+- Select a voivodeship and dynamically update the population KPIs
+- Identify the voivodeship with the largest foreign population
+
+The map presents aggregated census data and does not contain individual or personally identifiable information.
+
+### Data Quality and Validation
+
+A dedicated QA page was developed to validate the analytical model before presenting the results.
+
+The validation process includes:
+
+- Reconciliation between the sum of the 16 voivodeships and Poland’s national census total
+- Population reconciliation difference equal to zero
+- Validation of complete and incomplete reporting periods
+- Comparison of annual applications, decisions and valid residence documents
+- Visual PASS/FAIL indicators
+- Separation of complete annual data from the 2026 partial-year period
+- Independent identification of the latest administrative year and the latest population census year
+
+The regional and national 2021 population totals reconcile successfully:
+
+- **Regional population total:** 445K
+- **National population total:** 445K
+- **Reconciliation difference:** 0
+- **Validation status:** PASS
+
+### Data Modeling
+
+The Power BI semantic model follows a star-schema approach with:
+
+- Conformed dimensions for period, citizenship, geography, residence type, decision outcome and source
+- Separate fact tables for applications, decisions, valid documents and population
+- One-to-many relationships with single-direction filtering
+- Dedicated DAX measures for KPIs, year-over-year comparisons and QA controls
+- Separate model diagrams for administrative, mid-year and population analysis
+
+### Dashboard Demonstration
+
+![Power BI Dashboard Preview](Power%20BI/demo/Poland_Foreigners_Dashboard_Demo.gif)
+
+The GIF provides a quick overview of the report. The complete video demonstrates filtering, KPI updates, citizenship analysis and interaction with the geographic map.
+
+[▶ Watch the full dashboard demonstration](Power%20BI/demo/Poland_Foreigners_Dashboard_Full_Demo.mp4)
+
+### Power BI File
+
+The Power BI project file is available for technical review and portfolio evaluation.
+
+[⬇ Download the Power BI dashboard](Power%20BI/Poland-Foreigners-Dashboard/Poland_Foreigners_Dashboard.pbix)
+
+> This file is provided for portfolio and evaluation purposes. Data sources are public, and no credentials or private information are included.
+
+### Data Sources
+
+- Office for Foreigners in Poland (UdSC), annual reports for 2021–2025
+- Office for Foreigners in Poland (UdSC), January–June reports for 2025 and 2026
+- Statistics Poland (GUS), National Population and Housing Census 2021
+
+> Applications and decisions represent administrative flows and should not be interpreted as the same case cohort. Census population figures represent a population stock and are not directly comparable with UdSC administrative statistics.
 
 ## Tools
 
